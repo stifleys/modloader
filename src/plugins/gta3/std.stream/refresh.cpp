@@ -66,7 +66,7 @@ class Refresher : private T
 
 
         // Reference to the streaming object
-        CAbstractStreaming& streaming;
+        CAbstractStreaming* streaming;
         
         std::map<void*, EntitySave>         mSavedEntityData;   // Saves entity stuff
 
@@ -171,16 +171,16 @@ void CAbstractStreaming::ProcessRefreshes()
  */
 template<class T> 
 Refresher<T>::Refresher(CAbstractStreaming& s) 
-    : streaming(s)
+    : streaming(&s)
 {
     plugin_ptr->Log("Refreshing necessary models...");
 
     // Before we do anything we shouldn't have anything on the streaming bus
-    streaming.FlushChannels();
+    streaming->FlushChannels();
 
     // Remove all unused models on the streaming, so our reloading process will be less painful (faster),
     // we won't end up reloading unused models
-    streaming.RemoveUnusedResources();
+    streaming->RemoveUnusedResources();
 
     // Setup the refresher (order matters)
     this->BuildTxdAssociationMap();
@@ -204,7 +204,7 @@ Refresher<T>::Refresher(CAbstractStreaming& s)
  */
 template<class T> 
 Refresher<T>::Refresher(tag_player_t, CAbstractStreaming& s) 
-    : streaming(s)
+    : streaming(&s)
 {
     plugin_ptr->Log("Refreshing player...");
 
@@ -212,7 +212,7 @@ Refresher<T>::Refresher(tag_player_t, CAbstractStreaming& s)
     always.write<void*>(0x5A8346 + 1, nullptr, true);   // even when ""nothing"" changed in it
 
     // Update the streaming buffer with the new highest clothing item
-    CAbstractStreaming::StreamingBufferUpdater().AddItem(streaming.newcloth_blocks);
+    CAbstractStreaming::StreamingBufferUpdater().AddItem(streaming->newcloth_blocks);
 
     auto ped = injector::cstd<void*(int)>::call<0x56E210>(-1);      // FindPlayerPed
     injector::cstd<void(void*, char)>::call<0x5A82C0>(ped, false);  // CClothes::RebuildPlayer              
@@ -260,7 +260,7 @@ template<class T> void Refresher<T>::BuildRefreshMap()
     auto AddRefresh = [this](id_t id)
     {
         // Go ahead only if this model is valid and is present on the streaming (loaded)
-        if(id != -1 && streaming.IsModelOnStreaming(id))
+        if(id != -1 && streaming->IsModelOnStreaming(id))
         {
             this->mToRefresh.emplace(std::piecewise_construct,
                 std::forward_as_tuple(id),
@@ -271,10 +271,10 @@ template<class T> void Refresher<T>::BuildRefreshMap()
     };
 
     // For each model that needs reimporting.....
-    for(auto& imp : streaming.to_import)
+    for(auto& imp : streaming->to_import)
     {
-        auto id = streaming.FindModelFromHash(imp.first);
-        auto type = streaming.GetIdType(id);
+        auto id = streaming->FindModelFromHash(imp.first);
+        auto type = streaming->GetIdType(id);
 
         // Cannot refresh some kinds of resources just in time (In fact I'm not giving any effort to refresh those)
         // XXX COL and IPL needs recalculation on the bounding box (do it)
@@ -336,8 +336,8 @@ template<class T> void Refresher<T>::DestroyEntities()
  */
 template<class T> void Refresher<T>::RemoveModels()
 {
-    for(auto& pair : this->mToRefresh) streaming.RemoveModel(pair.first);
-    streaming.RemoveUnusedResources();
+    for(auto& pair : this->mToRefresh) streaming->RemoveModel(pair.first);
+    streaming->RemoveUnusedResources();
 }
 
 /*
@@ -349,12 +349,12 @@ template<class T> void Refresher<T>::ProcessImportList()
 {
     ref_list<const modloader::file*> import;    // To import
     std::vector<hash_t> unimport;               // To unimport
-    auto size = streaming.to_import.size();
+    auto size = streaming->to_import.size();
 
     // Setup the lists
     import.reserve(size);
     unimport.reserve(size);
-    for(auto& pair : streaming.to_import)
+    for(auto& pair : streaming->to_import)
     {
         // If has file associated, we need to import otherwise export
         if(pair.second) import.emplace_back(std::ref(pair.second));
@@ -364,12 +364,12 @@ template<class T> void Refresher<T>::ProcessImportList()
     // Order maters, so, first unimport the models
     for(auto hash : unimport)
     {
-        auto id = streaming.FindModelFromHash(hash);
-        if(id != -1) streaming.UnimportModel(id);
+        auto id = streaming->FindModelFromHash(hash);
+        if(id != -1) streaming->UnimportModel(id);
     }
 
     // ...and then import
-    streaming.ImportModels(import);
+    streaming->ImportModels(import);
 }
 
 /*
@@ -381,13 +381,13 @@ template<class T> void Refresher<T>::RequestModels()
     // Do the requests
     for(auto& pair : mToRefresh)
     {
-        auto& model = *streaming.InfoForModel(pair.first);
+        auto& model = *streaming->InfoForModel(pair.first);
         if(model.flags || pair.second.bShallLoadBack) // Has any importance to the streaming?
-            streaming.RequestModel(pair.first, model.flags);
+            streaming->RequestModel(pair.first, model.flags);
     }
 
     // Stream those models in now!
-    streaming.LoadAllRequestedModels();
+    streaming->LoadAllRequestedModels();
 }
 
 /*
